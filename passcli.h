@@ -243,7 +243,7 @@ initializer<Ty> init(const Ty &Val) {
   return initializer<Ty>(Val);
 }
 
-initializer<string> init(const char *cptr) {
+inline initializer<string> init(const char *cptr) {
   std::stringstream ss;
   ss << cptr;
   return initializer<string>(ss.str());
@@ -295,15 +295,6 @@ public:
 
 }
 
-#define PASSICLI_ONCE() \
-    TEMPLATE_INSTANTIATION(class cl::basic_parser<bool>); \
-    TEMPLATE_INSTANTIATION(class cl::basic_parser<int>); \
-    TEMPLATE_INSTANTIATION(class cl::basic_parser<unsigned>); \
-    TEMPLATE_INSTANTIATION(class cl::basic_parser<unsigned long long>); \
-    TEMPLATE_INSTANTIATION(class cl::basic_parser<double>); \
-    TEMPLATE_INSTANTIATION(class cl::basic_parser<float>); \
-    TEMPLATE_INSTANTIATION(class cl::basic_parser<std::string>); \
-    TEMPLATE_INSTANTIATION(class cl::basic_parser<char>);
 
 #endif
 

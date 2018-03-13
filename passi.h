@@ -174,27 +174,11 @@ public:
   }
 };
 
-extern cl::opt<bool> __PASS_DEBUG;
-extern cl::opt<std::string> __PASS_DEBUG_PASS;
+extern bool di_debug;
+extern std::string di_debug_pass;
 
-#define DEBUG(X) if (__PASS_DEBUG || !__PASS_DEBUG_PASS.getValue().compare(this->name)) { X; }
+#define DEBUG(X) if (di_debug || di_debug_pass == this->name) { X; }
 
-#define PASS_ONCE() \
-    PASSICLI_ONCE(); \
-    cl::opt<bool> \
-    __PASS_DEBUG("debug", \
-    cl::desc("Enables debugging for all the passes."), \
-    cl::init(false)); \
-    cl::opt<std::string> \
-    __PASS_DEBUG_PASS("debug-pass", \
-    cl::desc("Enables debugging for a specific pass."), \
-    cl::init(""))
-
-#define STD_GEN_CL_OPTS() \
-    cl::opt<bool> \
-    __CL_TIME_PASSES("time-passes", \
-    cl::desc("Time each pass and print elapsed time."), \
-    cl::init(false)); \
 
 #endif
 

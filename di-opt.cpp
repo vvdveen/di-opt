@@ -10,8 +10,22 @@
 
 #include <sys/time.h>
 
-OPT_CLI_ONCE();
-PASSICLI_ONCE();
+OptParamParser* OptParamParser::__OptParamParser = NULL; 
+std::vector<const PassTimer*> PassTimer::expiredTimers;
+
+TEMPLATE_INSTANTIATION(class cl::basic_parser<bool>); 
+TEMPLATE_INSTANTIATION(class cl::basic_parser<int>); 
+TEMPLATE_INSTANTIATION(class cl::basic_parser<unsigned>); 
+TEMPLATE_INSTANTIATION(class cl::basic_parser<unsigned long long>); 
+TEMPLATE_INSTANTIATION(class cl::basic_parser<double>); 
+TEMPLATE_INSTANTIATION(class cl::basic_parser<float>); 
+TEMPLATE_INSTANTIATION(class cl::basic_parser<std::string>); 
+TEMPLATE_INSTANTIATION(class cl::basic_parser<char>);
+
+bool di_debug;
+std::string di_debug_pass;
+
+BPatch bpatch;
 
 void EXIT(int status)
 {
@@ -25,21 +39,6 @@ void exit_usage(string err, OptParamParser *parser)
     EXIT(1);
 }
 
-/* Standard command-line options. */
-#define STD_CL_OPTS() \
-    STD_GEN_CL_OPTS(); \
-    cl::opt<bool> \
-    detach("detach", \
-        cl::desc("Detach immediately."), \
-        cl::init(true)); \
-    cl::opt<bool> \
-    quit("quit", \
-        cl::desc("Quit immediately."), \
-        cl::init(false)); \
-    cl::opt<bool> \
-    forceRewriting("force-rewriting", \
-        cl::desc("Force rewriting even when not necessary."), \
-        cl::init(false))
 
 int main(int argc, char **argv)
 {
@@ -55,7 +54,13 @@ int main(int argc, char **argv)
     ret = parser->parse(err);
     if (ret < 0)
         exit_usage(err, parser);
-    STD_CL_OPTS();
+    
+    cl::opt<bool> __PASS_DEBUG("debug", cl::desc("Enables debugging for all the passes."), cl::init(false)); 
+    cl::opt<std::string> __PASS_DEBUG_PASS("debug-pass", cl::desc("Enables debugging for a specific pass."), cl::init(""));
+    cl::opt<bool> __CL_TIME_PASSES("time-passes", cl::desc("Time each pass and print elapsed time."), cl::init(false)); 
+    cl::opt<bool> detach("detach", cl::desc("Detach immediately."), cl::init(true)); 
+    cl::opt<bool> quit("quit", cl::desc("Quit immediately."), cl::init(false)); 
+    cl::opt<bool>  forceRewriting("force-rewriting",  cl::desc("Force rewriting even when not necessary."),  cl::init(false));
 
     TimeRegion *dyninstMainTR = new TimeRegion(PassTimer::getPassTimer("di-opt.main", __CL_TIME_PASSES));
     TimeRegion *untilDetachTR = new TimeRegion(PassTimer::getPassTimer("di-opt.detached", __CL_TIME_PASSES));
@@ -68,6 +73,9 @@ int main(int argc, char **argv)
     ret = parser->check(err, OPPR_IO_OR_ARGS);
     if (ret < 0) 
         exit_usage(err, parser);
+
+    di_debug      = __PASS_DEBUG.getValue();
+    di_debug_pass = __PASS_DEBUG_PASS.getValue();
 
     vector<OptParam> passes = parser->getPasses();
     for (unsigned i=0;i<passes.size();i++) {

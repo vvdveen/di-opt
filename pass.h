@@ -13,7 +13,7 @@
 
 using namespace Dyninst;
 
-BPatch bpatch;
+extern BPatch bpatch;
 
 #endif /* _DI_PASS_H */
 

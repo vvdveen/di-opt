@@ -382,7 +382,7 @@ inline int OptParamParser::check(vector<OptParam> &list, string &err)
     return 0;
 }
 
-int OptParamParser::registerParam(OptParam &src, OptParam **trg, bool isPass)
+inline int OptParamParser::registerParam(OptParam &src, OptParam **trg, bool isPass)
 {
     if (trg)
         *trg = NULL;
@@ -416,8 +416,5 @@ int OptParamParser::registerParam(OptParam &src, OptParam **trg, bool isPass)
     return 0;
 }
 
-#define OPT_CLI_ONCE() \
-    OptParamParser* OptParamParser::__OptParamParser = NULL; \
-    std::vector<const PassTimer*> PassTimer::expiredTimers;
 
 #endif
