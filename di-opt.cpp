@@ -27,46 +27,43 @@ std::string di_debug_pass;
 
 BPatch bpatch;
 
-void EXIT(int status)
-{
+void EXIT(int status) {
     _exit(status);
 }
 
-void exit_usage(string err, OptParamParser *parser)
-{
+void exit_usage(string err, OptParamParser *parser) {
     cerr << err << endl;
     cerr << parser->usage();
     EXIT(1);
 }
 
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     int ret;
     bool retB;
     bool modified = false;
     bool outputWritten = false;
     string err;
 
-    fprintf(stderr,"[di-opt] parsing arguments\n");
+//  fprintf(stderr,"[di-opt] parsing arguments\n");
 
     OptParamParser *parser = OptParamParser::getInstance(argc, argv);
     ret = parser->parse(err);
     if (ret < 0)
         exit_usage(err, parser);
     
-    cl::opt<bool> __PASS_DEBUG("debug", cl::desc("Enables debugging for all the passes."), cl::init(false)); 
+    cl::opt<bool>        __PASS_DEBUG     ("debug",      cl::desc("Enables debugging for all the passes."),  cl::init(false)); 
     cl::opt<std::string> __PASS_DEBUG_PASS("debug-pass", cl::desc("Enables debugging for a specific pass."), cl::init(""));
-    cl::opt<bool> __CL_TIME_PASSES("time-passes", cl::desc("Time each pass and print elapsed time."), cl::init(false)); 
-    cl::opt<bool> detach("detach", cl::desc("Detach immediately."), cl::init(true)); 
-    cl::opt<bool> quit("quit", cl::desc("Quit immediately."), cl::init(false)); 
-    cl::opt<bool>  forceRewriting("force-rewriting",  cl::desc("Force rewriting even when not necessary."),  cl::init(false));
+    cl::opt<bool> __CL_TIME_PASSES("time-passes",    cl::desc("Time each pass and print elapsed time."),   cl::init(false)); 
+    cl::opt<bool>          detach("detach",          cl::desc("Detach immediately."),                      cl::init(true)); 
+    cl::opt<bool>            quit("quit",            cl::desc("Quit immediately."),                        cl::init(false)); 
+    cl::opt<bool>  forceRewriting("force-rewriting", cl::desc("Force rewriting even when not necessary."), cl::init(false));
 
     TimeRegion *dyninstMainTR = new TimeRegion(PassTimer::getPassTimer("di-opt.main", __CL_TIME_PASSES));
     TimeRegion *untilDetachTR = new TimeRegion(PassTimer::getPassTimer("di-opt.detached", __CL_TIME_PASSES));
-    TimeRegion *stayAttachedTR = new TimeRegion(PassTimer::getPassTimer("di-opt.stay_attached", __CL_TIME_PASSES));
-
     TimeRegion *initTimeRegion = new TimeRegion(PassTimer::getPassTimer("di-opt.init", __CL_TIME_PASSES));
+    TimeRegion *processTR;
+
     ret = parser->load(err);
     if (ret < 0)
         exit_usage(err, parser);
@@ -89,13 +86,13 @@ int main(int argc, char **argv)
     BPatch_addressSpace* handle;
     std::string path = parser->getInput();
     if (parser->hasIO()) {
-        fprintf(stderr,"[di-opt] openBinary\n");
+//      fprintf(stderr,"[di-opt] openBinary\n");
         handle = beHandle = bpatch.openBinary(path.c_str());
     } else {
-        fprintf(stderr,"[di-opt] processCreate (this may take some time)\n");
+//      fprintf(stderr,"[di-opt] processCreate (this may take some time)\n");
         const char **argv = parser->getArgv();
         handle = pHandle = bpatch.processCreate(argv[0], argv);
-        fprintf(stderr,"[di-opt] done\n");
+//      fprintf(stderr,"[di-opt] done\n");
         delete[] argv;
     }
     delete initTimeRegion;
@@ -103,18 +100,17 @@ int main(int argc, char **argv)
     for (unsigned i=0;i<passes.size();i++) {
         ModulePass *pass = dynamic_cast<ModulePass*>(passes[i].owner);
         assert(pass);
-    	if (outputWritten){
+        if (outputWritten){
             errs() << "WARNING: pass " << pass->getName() << " skipped because output already written\n";
-	        continue;
-    	}
-        fprintf(stderr,"[di-opt] running pass %s\n", pass->getName().c_str());
+            continue;
+        }
+//      fprintf(stderr,"[di-opt] running pass %s\n", pass->getName().c_str());
         TimeRegion timeRegion(PassTimer::getPassTimer(pass->getName(), __CL_TIME_PASSES));
         retB = pass->runOnModule(handle, path, parser->getOutput(), outputWritten);
         if (retB)
             modified = true;
-        fprintf(stderr,"[di-opt] done\n");
+//      fprintf(stderr,"[di-opt] done\n");
     }
-    //PassTimer::printExpiredTimers();
 
     if (quit) {
         if (pHandle)
@@ -123,34 +119,33 @@ int main(int argc, char **argv)
     }
     if (forceRewriting)
         modified = true;
-    if (modified && !outputWritten && beHandle) {
+    if (modified && !outputWritten && beHandle)
         beHandle->writeFile(parser->getOutput().c_str());
-    }
     else if (pHandle) {
         if (detach) {
-            fprintf(stderr,"[di-opt] detaching\n");
-	    assert(pHandle->isStopped());
+//          fprintf(stderr,"[di-opt] detaching\n");
+            assert(pHandle->isStopped());
 
-	    pHandle->detach(true);
+            pHandle->detach(true);
 
             delete untilDetachTR;
             untilDetachTR = NULL;
 
-            fprintf(stderr,"[di-opt] detached\n");
-        }
-        else {
-            fprintf(stderr,"[di-opt] remaining attached\n");
+//          fprintf(stderr,"[di-opt] detached\n");
+        } else {
+//          fprintf(stderr,"[di-opt] remaining attached\n");
 
-            delete stayAttachedTR;
-            stayAttachedTR = NULL;
+            processTR = new TimeRegion(PassTimer::getPassTimer("di-opt.process", __CL_TIME_PASSES));
 
             pHandle->continueExecution();
             while (!pHandle->isTerminated()){
-                fprintf(stderr,"--start waiting for status change--\n");
+//              fprintf(stderr,"--start waiting for status change--\n");
                 bpatch.waitForStatusChange();
-                fprintf(stderr,"--status changed--\n");
+//              fprintf(stderr,"--status changed--\n");
             }
-            fprintf(stderr,"--proc is terminated--\n");
+            delete processTR;
+
+//          fprintf(stderr,"--proc is terminated--\n");
         }
     }
 
@@ -158,8 +153,7 @@ int main(int argc, char **argv)
     PassTimer::printExpiredTimers();
 
     if(untilDetachTR) delete untilDetachTR;
-    if(stayAttachedTR) delete stayAttachedTR;
-
+    
     EXIT(0);
     return 0;
 }
