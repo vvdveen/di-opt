@@ -155,7 +155,7 @@ public:
       ofstream outf;
       if (outputFile != "") {
           errs() << "OPENING OUTPUTFILE: " << outputFile << endl;
-          outf.open(outputFile);
+          outf.open(outputFile, std::ios_base::app);
           buf = outf.rdbuf();
       } else
           buf = std::cerr.rdbuf();
@@ -167,8 +167,10 @@ public:
           }
           expiredTimers[i]->print(&out);
       }
-      if (outputFile != "")
+      if (outputFile != "") {
+          out << endl;
           outf.close();
+      }
   }
   static std::vector<const PassTimer*> expiredTimers;
 
