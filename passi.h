@@ -1,6 +1,9 @@
 #ifndef _OPT_PASSI_H_
 #define _OPT_PASSI_H_
 
+#include <ostream>
+#include <fstream>
+#include <iostream>
 #include <ctime>
 #include "cli.h"
 #include "passcli.h"
@@ -113,11 +116,16 @@ public:
       clock_gettime(CLOCK_MONOTONIC_RAW, &time_start);
   }
 
+  virtual void adjustStart(uint64_t sec, uint64_t nsec) {
+      time_start.tv_sec = sec;
+      time_start.tv_nsec = nsec;
+  }
+
   /// stopTimer - Stop the timer.
   ///
   virtual void stopTimer() {
-      struct timespec time;
       clock_gettime(CLOCK_MONOTONIC_RAW, &time_end);
+      struct timespec time;
       if ((time_end.tv_nsec-time_start.tv_nsec)<0) {
           time.tv_sec = time_end.tv_sec-time_start.tv_sec-1;
           time.tv_nsec = 1000000000+time_end.tv_nsec-time_start.tv_nsec;
@@ -128,8 +136,8 @@ public:
       elapsed += (double)time.tv_sec + ((double)time.tv_nsec)/1000000000;
   }
 
-  virtual void print() const {
-      errs() << Name << "_pass_secs = " << std::setiosflags(ios::fixed) << std::setprecision(3) << elapsed << std::endl;
+  virtual void print(std::ostream *out) const {
+      *out << Name << "_pass_secs = " << std::setiosflags(ios::fixed) << std::setprecision(3) << elapsed << std::endl;
   }
 };
 
@@ -142,12 +150,25 @@ public:
   static PassTimer* getPassTimer(const std::string &name, bool timePasses) {
       return timePasses ? new PassTimer(name) : NULL;
   }
-  static void printExpiredTimers() {
+  static void printExpiredTimers(std::string outputFile) {
+      streambuf *buf;
+      ofstream outf;
+      if (outputFile != "") {
+          errs() << "OPENING OUTPUTFILE: " << outputFile << endl;
+          outf.open(outputFile);
+          buf = outf.rdbuf();
+      } else
+          buf = std::cerr.rdbuf();
+      ostream out(buf);
+
       for (unsigned i=0;i<expiredTimers.size();i++) {
-          if (i==0)
-              errs() << "[time-passes-info]" << std::endl;
-          expiredTimers[i]->print();
+          if (i==0) {
+              out << "[time-passes-info]" << std::endl;
+          }
+          expiredTimers[i]->print(&out);
       }
+      if (outputFile != "")
+          outf.close();
   }
   static std::vector<const PassTimer*> expiredTimers;
 
@@ -169,6 +190,10 @@ public:
   explicit TimeRegion(Timer *t) : T(t) {
     if (T) T->startTimer();
   }
+  void adjustStart(uint64_t sec, uint64_t nsec) {
+    if (T) T->adjustStart(sec, nsec);
+  } 
+  
   ~TimeRegion() {
     if (T) T->stopTimer();
   }

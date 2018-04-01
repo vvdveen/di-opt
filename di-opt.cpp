@@ -10,6 +10,12 @@
 
 #include <sys/time.h>
 
+#define DDEBUG 1
+#define LOG(fmt, ...) \
+        do { if (DDEBUG) fprintf(stderr, "[%s:%d:%s]: " fmt, __FILE__, \
+                                __LINE__, __func__, ##__VA_ARGS__); } while (0)
+
+
 OptParamParser* OptParamParser::__OptParamParser = NULL; 
 std::vector<const PassTimer*> PassTimer::expiredTimers;
 
@@ -45,7 +51,7 @@ int main(int argc, char **argv) {
     bool outputWritten = false;
     string err;
 
-//  fprintf(stderr,"[di-opt] parsing arguments\n");
+    LOG("[di-opt] parsing arguments\n");
 
     OptParamParser *parser = OptParamParser::getInstance(argc, argv);
     ret = parser->parse(err);
@@ -54,15 +60,18 @@ int main(int argc, char **argv) {
     
     cl::opt<bool>        __PASS_DEBUG     ("debug",      cl::desc("Enables debugging for all the passes."),  cl::init(false)); 
     cl::opt<std::string> __PASS_DEBUG_PASS("debug-pass", cl::desc("Enables debugging for a specific pass."), cl::init(""));
-    cl::opt<bool> __CL_TIME_PASSES("time-passes",    cl::desc("Time each pass and print elapsed time."),   cl::init(false)); 
-    cl::opt<bool>          detach("detach",          cl::desc("Detach immediately."),                      cl::init(true)); 
-    cl::opt<bool>            quit("quit",            cl::desc("Quit immediately."),                        cl::init(false)); 
-    cl::opt<bool>  forceRewriting("force-rewriting", cl::desc("Force rewriting even when not necessary."), cl::init(false));
+    cl::opt<bool>        timePasses("time-passes",      cl::desc("Time each pass and print elapsed time."),   cl::init(false)); 
+    cl::opt<std::string> timeOutput("time-passes-fname",cl::desc("Write time-passes to this file instead of stdout."), cl::init(""));
+    cl::opt<std::string>  mainStart("main-start-fname", cl::desc("Filename that will hold the real start-time of main. First line should hold seconds, second line should hold nanoseconds."), cl::init(""));
+    cl::opt<bool>          detach("detach",            cl::desc("Detach immediately."),                      cl::init(true)); 
+    cl::opt<bool>            quit("quit",              cl::desc("Quit immediately."),                        cl::init(false)); 
+    cl::opt<bool>  forceRewriting("force-rewriting",   cl::desc("Force rewriting even when not necessary."), cl::init(false));
 
-    TimeRegion *dyninstMainTR = new TimeRegion(PassTimer::getPassTimer("di-opt.main", __CL_TIME_PASSES));
-    TimeRegion *untilDetachTR = new TimeRegion(PassTimer::getPassTimer("di-opt.detached", __CL_TIME_PASSES));
-    TimeRegion *initTimeRegion = new TimeRegion(PassTimer::getPassTimer("di-opt.init", __CL_TIME_PASSES));
-    TimeRegion *processTR;
+    TimeRegion *dyninstMainTR = new TimeRegion(PassTimer::getPassTimer("di-opt.main", timePasses));
+    TimeRegion *untilDetachTR = new TimeRegion(PassTimer::getPassTimer("di-opt.detached", timePasses));
+    TimeRegion *initTimeRegion = new TimeRegion(PassTimer::getPassTimer("di-opt.init", timePasses));
+    TimeRegion *processFullTR;
+    TimeRegion *processRealTR;
 
     ret = parser->load(err);
     if (ret < 0)
@@ -73,6 +82,8 @@ int main(int argc, char **argv) {
 
     di_debug      = __PASS_DEBUG.getValue();
     di_debug_pass = __PASS_DEBUG_PASS.getValue();
+    
+    std::string realStartFilename = mainStart.getValue();
 
     vector<OptParam> passes = parser->getPasses();
     for (unsigned i=0;i<passes.size();i++) {
@@ -86,13 +97,13 @@ int main(int argc, char **argv) {
     BPatch_addressSpace* handle;
     std::string path = parser->getInput();
     if (parser->hasIO()) {
-//      fprintf(stderr,"[di-opt] openBinary\n");
+        LOG("openBinary\n");
         handle = beHandle = bpatch.openBinary(path.c_str());
     } else {
-//      fprintf(stderr,"[di-opt] processCreate (this may take some time)\n");
+        LOG("processCreate (this may take some time)\n");
         const char **argv = parser->getArgv();
         handle = pHandle = bpatch.processCreate(argv[0], argv);
-//      fprintf(stderr,"[di-opt] done\n");
+        LOG("done\n");
         delete[] argv;
     }
     delete initTimeRegion;
@@ -104,12 +115,12 @@ int main(int argc, char **argv) {
             errs() << "WARNING: pass " << pass->getName() << " skipped because output already written\n";
             continue;
         }
-//      fprintf(stderr,"[di-opt] running pass %s\n", pass->getName().c_str());
-        TimeRegion timeRegion(PassTimer::getPassTimer(pass->getName(), __CL_TIME_PASSES));
+        LOG("running pass %s\n", pass->getName().c_str());
+        TimeRegion timeRegion(PassTimer::getPassTimer(pass->getName(), timePasses));
         retB = pass->runOnModule(handle, path, parser->getOutput(), outputWritten);
         if (retB)
             modified = true;
-//      fprintf(stderr,"[di-opt] done\n");
+        LOG("done\n");
     }
 
     if (quit) {
@@ -123,7 +134,7 @@ int main(int argc, char **argv) {
         beHandle->writeFile(parser->getOutput().c_str());
     else if (pHandle) {
         if (detach) {
-//          fprintf(stderr,"[di-opt] detaching\n");
+            LOG("detaching\n");
             assert(pHandle->isStopped());
 
             pHandle->detach(true);
@@ -131,26 +142,45 @@ int main(int argc, char **argv) {
             delete untilDetachTR;
             untilDetachTR = NULL;
 
-//          fprintf(stderr,"[di-opt] detached\n");
+            LOG("detached\n");
         } else {
-//          fprintf(stderr,"[di-opt] remaining attached\n");
+            LOG("remaining attached\n");
 
-            processTR = new TimeRegion(PassTimer::getPassTimer("di-opt.process", __CL_TIME_PASSES));
+            processFullTR = new TimeRegion(PassTimer::getPassTimer("process.full", timePasses));
+            processRealTR = new TimeRegion(PassTimer::getPassTimer("process.real", timePasses));
 
             pHandle->continueExecution();
             while (!pHandle->isTerminated()){
-//              fprintf(stderr,"--start waiting for status change--\n");
+                LOG("--start waiting for status change--\n");
                 bpatch.waitForStatusChange();
-//              fprintf(stderr,"--status changed--\n");
+                LOG("--status changed--\n");
             }
-            delete processTR;
 
-//          fprintf(stderr,"--proc is terminated--\n");
+            LOG("--proc is terminated--\n");
         }
     }
 
+    if (realStartFilename != "") {
+        LOG("reading real start time from %s\n", realStartFilename.c_str());
+        std::ifstream infile(realStartFilename);
+        if (infile.fail()) 
+            errs() << "WARNING: could not open " << realStartFilename << endl;
+        else {
+            uint64_t start_sec, start_nsec;
+            infile >> start_sec;
+            infile >> start_nsec;
+            LOG("- real start sec: %lu\n", start_sec);
+            LOG("- real start nsec: %lu\n", start_nsec);
+            processRealTR->adjustStart(start_sec, start_nsec);
+        }
+    }
+
+    if (processFullTR) delete processFullTR;
+    if (processRealTR) delete processRealTR;
+
+
     delete dyninstMainTR;
-    PassTimer::printExpiredTimers();
+    PassTimer::printExpiredTimers(timeOutput.getValue());
 
     if(untilDetachTR) delete untilDetachTR;
     
