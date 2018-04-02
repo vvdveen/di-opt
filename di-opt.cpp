@@ -33,6 +33,27 @@ std::string di_debug_pass;
 
 BPatch bpatch;
 
+BPatch_function *findFunc(BPatch_image *image, const char *name) {
+    std::vector<BPatch_function*> funcs;
+
+    image->findFunction(name, funcs);
+    if (funcs.empty()) {
+        printf("Could not find any function named %s\n",name);
+        exit(EXIT_FAILURE);
+    }
+    if (funcs.size() > 1) {
+        printf("Found more than one function named %s:\n",name);
+        for (auto f: funcs) {
+            char modulename[1024];
+            f->getModuleName(modulename, 1024);
+            cout << modulename << "." << hex << f->getBaseAddr() << endl;
+        }
+        exit(EXIT_FAILURE);
+    }
+    return funcs[0];
+}
+
+
 void EXIT(int status) {
     _exit(status);
 }
@@ -61,8 +82,8 @@ int main(int argc, char **argv) {
     cl::opt<bool>        __PASS_DEBUG     ("debug",      cl::desc("Enables debugging for all the passes."),  cl::init(false)); 
     cl::opt<std::string> __PASS_DEBUG_PASS("debug-pass", cl::desc("Enables debugging for a specific pass."), cl::init(""));
     cl::opt<bool>        timePasses("time-passes",      cl::desc("Time each pass and print elapsed time."),   cl::init(false)); 
-    cl::opt<std::string> timeOutput("time-passes-fname",cl::desc("Write time-passes to this file instead of stdout."), cl::init(""));
-    cl::opt<std::string>  mainStart("main-start-fname", cl::desc("Filename that will hold the real start-time of main. First line should hold seconds, second line should hold nanoseconds."), cl::init(""));
+    cl::opt<bool>        timeRuntime("time-runtime",     cl::desc("Time main process."),   cl::init(false)); 
+    cl::opt<std::string> timeOutput("time-output",      cl::desc("Write timers to this file instead of stdout."), cl::init(""));
     cl::opt<bool>          detach("detach",            cl::desc("Detach immediately."),                      cl::init(true)); 
     cl::opt<bool>            quit("quit",              cl::desc("Quit immediately."),                        cl::init(false)); 
     cl::opt<bool>  forceRewriting("force-rewriting",   cl::desc("Force rewriting even when not necessary."), cl::init(false));
@@ -70,8 +91,6 @@ int main(int argc, char **argv) {
     TimeRegion *dyninstMainTR = new TimeRegion(PassTimer::getPassTimer("di-opt.main", timePasses));
     TimeRegion *untilDetachTR = new TimeRegion(PassTimer::getPassTimer("di-opt.detached", timePasses));
     TimeRegion *initTimeRegion = new TimeRegion(PassTimer::getPassTimer("di-opt.init", timePasses));
-    TimeRegion *processFullTR;
-    TimeRegion *processRealTR;
 
     ret = parser->load(err);
     if (ret < 0)
@@ -83,7 +102,7 @@ int main(int argc, char **argv) {
     di_debug      = __PASS_DEBUG.getValue();
     di_debug_pass = __PASS_DEBUG_PASS.getValue();
     
-    std::string realStartFilename = mainStart.getValue();
+    std::string timeOutputFilename = timeOutput.getValue();
 
     vector<OptParam> passes = parser->getPasses();
     for (unsigned i=0;i<passes.size();i++) {
@@ -133,6 +152,45 @@ int main(int argc, char **argv) {
     if (modified && !outputWritten && beHandle)
         beHandle->writeFile(parser->getOutput().c_str());
     else if (pHandle) {
+		
+		if (timeRuntime) {
+	        BPatch_image *image = pHandle->getImage(); 
+
+			BPatch_object *timer_so = pHandle->loadLibrary("di-opt-timer.so");
+			if (timer_so == NULL) {
+			    errs() << "Could not load di-opt-timer.so\n";
+                exit(EXIT_FAILURE);
+            }
+
+    	    BPatch_function *main_func = findFunc(image,"main");
+        	std::vector<BPatch_point *> *entrypoints = main_func->findPoint(BPatch_entry);
+
+	        BPatch_function *main_hook = findFunc(image, "di_opt_timer_main");
+    	    std::vector<BPatch_snippet *> args;
+            BPatch_snippet *fname = new BPatch_constExpr(timeOutputFilename.c_str());
+			args.push_back(fname);
+	        BPatch_funcCallExpr *main_snippet = new BPatch_funcCallExpr(*main_hook, args);
+
+	        pHandle->insertSnippet(*main_snippet, *entrypoints, BPatch_callBefore, BPatch_lastSnippet);
+
+            BPatch_variableExpr *processStartVar = image->findVariable("di_opt_process_start");
+            if (!processStartVar) {
+                errs() << "Could not find 'di_opt_process_start' variable" << endl;
+                exit(EXIT_FAILURE);
+            }
+
+            struct timespec process_start;
+            clock_gettime(CLOCK_MONOTONIC_RAW, &process_start);
+            bool ret = processStartVar->writeValue(
+                        (void *) &process_start,
+                        (int) sizeof(struct timespec));
+            if (ret == false) {
+                errs() << "Unable to write di_opt_process_start" << endl;
+                exit(EXIT_FAILURE);
+            }
+		}
+
+
         if (detach) {
             LOG("detaching\n");
             assert(pHandle->isStopped());
@@ -146,9 +204,6 @@ int main(int argc, char **argv) {
         } else {
             LOG("remaining attached\n");
 
-            processFullTR = new TimeRegion(PassTimer::getPassTimer("process.full", timePasses));
-            processRealTR = new TimeRegion(PassTimer::getPassTimer("process.real", timePasses));
-
             pHandle->continueExecution();
             while (!pHandle->isTerminated()){
                 LOG("--start waiting for status change--\n");
@@ -160,23 +215,6 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (realStartFilename != "") {
-        LOG("reading real start time from %s\n", realStartFilename.c_str());
-        std::ifstream infile(realStartFilename);
-        if (infile.fail()) 
-            errs() << "WARNING: could not open " << realStartFilename << endl;
-        else {
-            uint64_t start_sec, start_nsec;
-            infile >> start_sec;
-            infile >> start_nsec;
-            LOG("- real start sec: %lu\n", start_sec);
-            LOG("- real start nsec: %lu\n", start_nsec);
-            processRealTR->adjustStart(start_sec, start_nsec);
-        }
-    }
-
-    if (processFullTR) delete processFullTR;
-    if (processRealTR) delete processRealTR;
 
 
     delete dyninstMainTR;

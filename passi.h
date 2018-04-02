@@ -116,11 +116,6 @@ public:
       clock_gettime(CLOCK_MONOTONIC_RAW, &time_start);
   }
 
-  virtual void adjustStart(uint64_t sec, uint64_t nsec) {
-      time_start.tv_sec = sec;
-      time_start.tv_nsec = nsec;
-  }
-
   /// stopTimer - Stop the timer.
   ///
   virtual void stopTimer() {
@@ -192,9 +187,6 @@ public:
   explicit TimeRegion(Timer *t) : T(t) {
     if (T) T->startTimer();
   }
-  void adjustStart(uint64_t sec, uint64_t nsec) {
-    if (T) T->adjustStart(sec, nsec);
-  } 
   
   ~TimeRegion() {
     if (T) T->stopTimer();
