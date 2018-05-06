@@ -2,6 +2,8 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
+#include <sys/personality.h>
+
 
 #include "passi.h"
 
@@ -71,6 +73,12 @@ int main(int argc, char **argv) {
     bool modified = false;
     bool outputWritten = false;
     string err;
+	
+    LOG("[di-opt] disabling ASLR\n");
+    if (personality(ADDR_NO_RANDOMIZE) == -1) {
+        perror("noaslr: personality failed");
+        return -1;
+    }
 
     LOG("[di-opt] parsing arguments\n");
 
