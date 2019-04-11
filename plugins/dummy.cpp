@@ -1,9 +1,6 @@
 
 #include "pass.h"
 
-PASS_ONCE();
-
-
 static cl::opt<std::string>
 clOpt1("dummy-opt1",
     cl::desc("A test command-line option."),
